@@ -1,3 +1,6 @@
+# Forked from https://github.com/mowbraym/Brewfather_iSpindel
+# Original Comments below
+
 # brewfather craftbeerpi3 plugin
 # Log iSpindel temperature, SG and Battery data from CraftBeerPi 3.0 to the brewfather app
 # https://brewfather.app/
@@ -35,12 +38,12 @@ def init(cbpi):
     log("Brewfather brewfather_iSpindel_id %s" % brewfather_iSpindel_id)
 
     if brewfather_iSpindel_id is None:
-	log("Init brewfather_iSpindel config URL")
-	try:
+        log("Init brewfather_iSpindel config URL")
+        try:
 # TODO: is param2 a default value?
-	    cbpi.add_config_parameter("brewfather_iSpindel_id", "", "text", "Brewfather_iSpindel id")
-	except:
-	    cbpi.notify("Brewfather_iSpindel Error", "Unable to update Brewfather_iSpindel id parameter", type="danger")
+            cbpi.add_config_parameter("brewfather_iSpindel_id", "", "text", "Brewfather_iSpindel id")
+        except:
+            cbpi.notify("Brewfather_iSpindel Error", "Unable to update Brewfather_iSpindel id parameter", type="danger")
     log("Brewfather_iSpindel params ends")
 
 # interval=900 is 900 seconds, 15 minutes, same as the Tilt Android App logs.
@@ -58,31 +61,43 @@ def brewfather_iSpindel_background_task(api):
 
     payload = {}
     for key, value in cbpi.cache.get("sensors").iteritems():
-        log("key %s value.name %s value.instance.last_value %s value.type %s" % (key, value.name, value.instance.last_value, value.type))
+        try:
+            log("value.name %s value.instance.last_value %s value.type %s" % (value.name, value.instance.last_value, value.type))
 
-        if (value.type == "iSpindel"):
-            if (value.instance.sensorType == "Temperature"):
-                temp = value.instance.last_value
-                # brewfather expects *F so convert back if we use C
-                if (cbpi.get_config_parameter("unit",None) == "C"):
-                    temp = temp * 1.8 + 32
-                payload['temperature'] = temp
+            if (value.type == "iSpindel"):
                 payload['name'] = value.instance.key
-            if (value.instance.sensorType == "RSSI"):
-                payload['RSSI'] = value.instance.last_value
-            if (value.instance.sensorType == "Battery"):
-                payload['battery'] = value.instance.last_value
-            if (value.instance.sensorType == "Gravity"):
-                payload['angle'] = value.instance.stored_angle
-                payload['gravity'] =value.instance.last_value
+                if (value.instance.sensorType == "Temperature"):
+                    payload['temperature'] = value.instance.last_value
+                if (value.instance.sensorType == "RSSI"):
+                    payload['RSSI'] = value.instance.last_value
+                if (value.instance.sensorType == "Battery"):
+                    payload['battery'] = value.instance.last_value
+                if (value.instance.sensorType == "Gravity"):
+                    payload['gravity'] = value.instance.last_value
+                if (value.instance.sensorType == 'Angle'):
+                    payload['angle'] = value.instance.last_value
+
+        except BaseException as error:
+            cbpi.notify("Brewfather iSpindel Error", "Unable to collect sensor data. " + str(error), type="danger", timeout=None)
+            log("Unable to collect sensor data. " + str(error))
+
+    ispindel_id = cbpi.get_config_parameter("brewfather_iSpindel_id", None)
     url = "http://log.brewfather.net/ispindel"
     headers = {
         'Content-Type': "application/json",
         'Cache-Control': "no-cache"
     }
-    id = cbpi.get_config_parameter("brewfather_iSpindel_id", None)
-    querystring = {"id":id}
+
+    querystring = {"id":str(ispindel_id)}
     log("Payload %s querystring %s" % (json.dumps(payload), querystring))
-    r = requests.request("POST", url, json=payload, headers=headers, params=querystring)
-    log("Result %s" % r.text)
+    #cbpi.notify("Brewfather iSpindel Payload", "Payload %s querystring %s" % (json.dumps(payload), querystring), type="success", timeout=None)
+    response = requests.request("POST", url, json=payload, headers=headers, params=querystring)
+    if response.status_code != 200:
+        cbpi.notify("Brewfather iSpindel Error", "Received unsuccessful response. Ensure API ID is correct. HTTP Error Code: " + str(response.status_code), type="danger", timeout=None)
+    if response.status_code == 200:
+        response_content = json.loads(response.text)
+        if response_content['result'] != "success":
+            cbpi.notify("Brewfather iSpindel Notification", "POST Unsuccsessful. Result: %s" % response_content['result'], type="danger", timeout=None)
+
+    log("Result %s" % response.text)
     log("brewfather_iSpindel done")
